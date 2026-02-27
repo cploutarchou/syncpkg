@@ -56,6 +56,8 @@ type ExtraConfig struct {
 	Username string
 	//Password is the password used to connect to the sftp server
 	Password string
+	//PrivateKeyPassphrase is the passphrase for the private key (used when the key is encrypted)
+	PrivateKeyPassphrase string
 	//LocalDir is the local directory to sync with the remote directory
 	LocalDir string
 	//RemoteDir is the remote directory to sync with the local directory
@@ -137,6 +139,9 @@ func Connect(address string, port int, direction SyncDirection, config *ExtraCon
 // using SSH key pair authentication. It reads the private key from the current user's home directory
 // (typically the `~/.ssh/id_rsa` file) to use for authentication.
 //
+// The function supports both unencrypted and passphrase-protected private keys. If the private key
+// is encrypted, you can provide the passphrase via config.PrivateKeyPassphrase.
+//
 // The function returns an *SFTP object that represents the connection, allowing you to perform file synchronization
 // and other SFTP operations between the local and remote directories.
 //
@@ -146,7 +151,7 @@ func Connect(address string, port int, direction SyncDirection, config *ExtraCon
 //   - direction: The direction of the sync operation, either LocalToRemote or RemoteToLocal.
 //   - config: An optional *ExtraConfig object that holds additional configuration for the SFTP client.
 //     If nil, default settings will be used. If provided, it may contain the username, local directory,
-//     remote directory, retries, and max retries for connecting to the SFTP server.
+//     remote directory, retries, max retries, and PrivateKeyPassphrase for encrypted keys.
 //
 // Return Values:
 //   - *SFTP: A pointer to the SFTP object representing the connection to the remote server.
@@ -167,6 +172,16 @@ func Connect(address string, port int, direction SyncDirection, config *ExtraCon
 //	}
 //	defer sftpConn.Close()
 //
+// Connect with passphrase-protected private key
+//
+//	config := &ExtraConfig{
+//	  Username:             "your_username",
+//	  LocalDir:             "/path/to/local/directory",
+//	  RemoteDir:            "/path/to/remote/directory",
+//	  PrivateKeyPassphrase: "your_passphrase",
+//	}
+//	sftpConn, err := ConnectSSHPair("example.com", 22, LocalToRemote, config)
+//
 //	// Perform SFTP operations, such as initial sync and directory watching
 //	sftpConn.WatchDirectory()
 func ConnectSSHPair(address string, port int, direction SyncDirection, config *ExtraConfig) (*SFTP, error) {
@@ -180,7 +195,12 @@ func ConnectSSHPair(address string, port int, direction SyncDirection, config *E
 		return nil, fmt.Errorf("unable to read private key: %w", err)
 	}
 
-	signer, err := ssh.ParsePrivateKey(key)
+	var signer ssh.Signer
+	if config != nil && config.PrivateKeyPassphrase != "" {
+		signer, err = ssh.ParsePrivateKeyWithPassphrase(key, []byte(config.PrivateKeyPassphrase))
+	} else {
+		signer, err = ssh.ParsePrivateKey(key)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("unable to parse private key: %w", err)
 	}
